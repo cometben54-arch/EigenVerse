@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>等时摆（摆线摆）· Isochronous Cycloidal Pendulum · EigenVerse</title>
+<style>
+  :root { --bg:#0b1020; --panel:#131a2e; --text:#e8eefb; --muted:#8fa0c0; --accent:#5ac8fa; --accent2:#ffd166; --track:#1c2744; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:24px 16px;}
+  h1{font-size:1.4rem;font-weight:600;margin-bottom:4px;}
+  .subtitle{color:var(--muted);font-size:0.82rem;margin-bottom:18px;text-align:center;max-width:820px;}
+  canvas{background:#0e1628;border:1px solid var(--track);border-radius:12px;width:100%;max-width:820px;height:auto;display:block;}
+  .controls{display:flex;flex-wrap:wrap;gap:16px;max-width:820px;width:100%;margin-top:16px;background:var(--panel);border:1px solid var(--track);border-radius:12px;padding:16px;}
+  .ctrl{display:flex;flex-direction:column;gap:6px;min-width:140px;flex:1;}
+  .ctrl label{font-size:0.75rem;color:var(--muted);}
+  .ctrl input[type=range]{accent-color:var(--accent);width:100%;}
+  .ctrl .val{font-variant-numeric:tabular-nums;font-weight:600;color:var(--accent);}
+  .readout{max-width:820px;width:100%;margin-top:14px;background:var(--panel);border:1px solid var(--track);border-radius:12px;padding:14px 16px;font-size:0.88rem;display:flex;flex-wrap:wrap;gap:12px 26px;}
+  .readout .item{display:flex;gap:6px;align-items:baseline;}
+  .readout .k{color:var(--muted);}
+  .readout .v{font-variant-numeric:tabular-nums;font-weight:600;}
+  .btn-row{margin-top:14px;display:flex;gap:10px;}
+  button{background:var(--accent);color:#062033;border:none;padding:10px 18px;border-radius:8px;font-weight:600;cursor:pointer;font-size:0.9rem;}
+  button.secondary{background:var(--track);color:var(--text);}
+  button:hover{filter:brightness(1.08);}
+  .note{max-width:820px;width:100%;margin-top:12px;font-size:0.75rem;color:var(--muted);line-height:1.6;}
+</style>
+</head>
+<body>
+  <h1>等时摆 · 摆线摆（Cycloidal Pendulum）</h1>
+  <div class="subtitle">悬绳绕在摆线（cycloid）"天棚"上，有效摆长随摆角改变，但周期精确恒定、与摆角无关（辶时性 tautochrone）。图中两个摆锤从不同高度释放，周期相同、同时回底、同步往复。</div>
+
+  <canvas id="cv" width="820" height="460"></canvas>
+
+  <div class="controls">
+    <div class="ctrl"><label>摆线参数 R</label>
+      <input id="sl-R" type="range" min="30" max="110" step="1" value="70">
+      <span class="val" id="val-R">0.70 m</span></div>
+    <div class="ctrl"><label>大摆初始弧长 s₀（占半拱 %）</label>
+      <input id="sl-s" type="range" min="5" max="95" step="1" value="75">
+      <span class="val" id="val-s">75%</span></div>
+    <div class="ctrl"><label>重力 g</label>
+      <input id="sl-g" type="range" min="1" max="25" step="0.1" value="9.8">
+      <span class="val" id="val-g">9.8 m/s²</span></div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-toggle">暂停 / 继续</button>
+    <button id="btn-reset" class="secondary">重置</button>
+  </div>
+
+  <div class="readout">
+    <div class="item"><span class="k">等时摆周期 T =</span><span class="v" id="out-T">–</span><span style="color:var(--muted)">（与摆角无关，恒定）</span></div>
+    <div class="item"><span class="k">对照·普通单摆(同长、大角) ≈</span><span class="v" id="out-Treg">–</span></div>
+    <div class="item"><span class="k">大摆当前弧长 =</span><span class="v" id="out-s">–</span></div>
+  </div>
+
+  <div class="note">
+    <b>物理：</b>摆线摆的弧长 s（从最低点量）满足 <i>s̈ + (g/4R)·s = 0</i>（简谐），周期 <b>T = 2π√(4R/g)</b> 与振幅无关。—— 倒置摆线（天棚/颊）的渐伸线正是另一条摆线，悬绳缠颊后摆锤沿摆线滑动，有效摆长随摆角自动补偿大角非线性，实现"等时"。普通单摆大角周期会随 θ₀ 变长（≈T₀(1+θ₀²/16+…)），故对照偏大。
+  </div>
+
+<script>
+(function(){
+  const cv=document.getElementById('cv'); const ctx=cv.getContext('2d');
+  const W=cv.width, H=cv.height;
+  const slR=document.getElementById('sl-R');
+  const slS=document.getElementById('sl-s');
+  const slG=document.getElementById('sl-g');
+
+  function R(){return parseFloat(slR.value)/100;}
+  function g(){return parseFloat(slG.value);}
+  function sFrac(){return parseFloat(slS.value)/100;}
+
+  // cycloid (bob path): cusp at BOTH top ends, smooth apex at BOTTOM (equilibrium).
+  // x(θ)=R(θ−sinθ), y(θ)=R(1+cosθ), θ∈[0,2π]
+  function thetaToXY(theta){
+    const r=R();
+    return { x:r*(theta-Math.sin(theta)), y:r*(1+Math.cos(theta)) };
+  }
+  // arc length from bottom (θ=π): s(θ) = -4R cos(θ/2), s∈[-4R,4R], s=0 at θ=π
+  function sToTheta(s){
+    let c=-s/(4*R());
+    if(c<-1)c=-1; if(c>1)c=1;
+    return 2*Math.acos(c);
+  }
+  function sToXY(s){ return thetaToXY(sToTheta(s)); }
+  const HALF_ARC = ()=> 4*R();
+
+  function worldRange(){ return {xMax:2*Math.PI*R(), yMax:2*R()}; }
+  function toScreen(xw,yw){
+    const {xMax,yMax}=worldRange();
+    const left=70,right=70,top=40,bot=70;
+    const sx=left+(xw/xMax)*(W-left-right);
+    const sy=(H-bot)-(yw/yMax)*(H-top-bot);
+    return [sx,sy];
+  }
+
+  // physics: SHM in arc length
+  let t=0, running=true, lastNow=null;
+  const omegaP = ()=> Math.sqrt(g()/(4*R()));
+  const Tiso   = ()=> 2*Math.PI/omegaP();
+  function s0Big(){ return sFrac()*HALF_ARC(); }
+  function s0Small(){ return 0.25*HALF_ARC(); }
+  function sBig(t){ return s0Big()*Math.cos(omegaP()*t); }
+  function sSmall(t){ return s0Small()*Math.cos(omegaP()*t); }
+
+  function regularPeriod(ampRad){
+    const T0=2*Math.PI*Math.sqrt(4*R()/g());
+    return T0*(1+ampRad*ampRad/16+11*Math.pow(ampRad,4)/3072);
+  }
+
+  function fmt(v,u,d){return v.toFixed(d==null?2:d)+' '+u;}
+  function updateLabels(){
+    document.getElementById('val-R').textContent=fmt(R(),'m',2);
+    document.getElementById('val-s').textContent=(sFrac()*100).toFixed(0)+'%';
+    document.getElementById('val-g').textContent=fmt(g(),'m/s²');
+  }
+  function reset(){t=0;running=true;updateLabels();draw(0);}
+  [slR,slS,slG].forEach(s=>s.addEventListener('input',()=>{updateLabels();reset();}));
+  document.getElementById('btn-toggle').addEventListener('click',()=>{running=!running;});
+  document.getElementById('btn-reset').addEventListener('click',reset);
+
+  function drawCycloid(){
+    ctx.strokeStyle='#35507f'; ctx.lineWidth=2; ctx.beginPath();
+    const N=200;
+    for(let i=0;i<=N;i++){
+      const {x,y}=thetaToXY((i/N)*2*Math.PI);
+      const [sx,sy]=toScreen(x,y);
+      i?ctx.lineTo(sx,sy):ctx.moveTo(sx,sy);
+    }
+    ctx.stroke();
+  }
+
+  function drawCeiling(){
+    ctx.strokeStyle='#3a4a6b'; ctx.lineWidth=2; ctx.setLineDash([5,4]); ctx.beginPath();
+    const N=120;
+    for(let i=0;i<=N;i++){
+      const {x,y}=thetaToXY((i/N)*2*Math.PI);
+      const [sx,sy]=toScreen(x, y+0.5*R());
+      i?ctx.lineTo(sx,sy):ctx.moveTo(sx,sy);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function drawBob(s,color,label){
+    const {x,y}=sToXY(s);
+    const [bx,by]=toScreen(x,y);
+    const [tx,ty]=toScreen(x, y+0.5*R());
+    ctx.strokeStyle=color+'66'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(bx,by); ctx.stroke();
+    ctx.fillStyle=color; ctx.beginPath(); ctx.arc(bx,by,9,0,2*Math.PI); ctx.fill();
+    ctx.fillStyle=color; ctx.font='11px sans-serif'; ctx.fillText(label,bx+12,by-8);
+  }
+
+  function draw(tSec){
+    ctx.clearRect(0,0,W,H);
+    const [gx0,gy0]=toScreen(0,0); const [gx1,gy1]=toScreen(2*Math.PI*R(),0);
+    ctx.strokeStyle='#2a3a5c'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(gx0,gy0); ctx.lineTo(gx1,gy1); ctx.stroke();
+    drawCycloid(); drawCeiling();
+    drawBob(sBig(tSec),'#ffd166','大角');
+    drawBob(sSmall(tSec),'#5ac8fa','小角');
+    document.getElementById('out-T').textContent=fmt(Tiso(),'s',2);
+    const thBig=sToTheta(s0Big());
+    const ampRad=thBig-Math.PI;
+    document.getElementById('out-Treg').textContent=fmt(regularPeriod(Math.abs(ampRad)),'s',2)+'（更长）';
+    document.getElementById('out-s').textContent=fmt(sBig(tSec),'m',2);
+  }
+
+  function loop(now){
+    if(lastNow==null)lastNow=now;
+    const dtMs=Math.min(now-lastNow,34); lastNow=now;
+    if(running)t+=dtMs/1000;
+    draw(t); requestAnimationFrame(loop);
+  }
+
+  updateLabels(); reset(); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
