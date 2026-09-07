@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抛体运动模拟 · Projectile Motion · EigenVerse</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --text: #e8eefb;
+    --muted: #8fa0c0;
+    --accent: #5ac8fa;
+    --accent2: #ffd166;
+    --track: #1c2744;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  canvas {
+    background: #0e1628;
+    border: 1px solid var(--track);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 760px;
+    height: auto;
+    display: block;
+  }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    max-width: 760px; width: 100%;
+    margin-top: 18px;
+    background: var(--panel);
+    border: 1px solid var(--track);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .ctrl { display: flex; flex-direction: column; gap: 6px; min-width: 150px; flex: 1; }
+  .ctrl label { font-size: 0.75rem; color: var(--muted); }
+  .ctrl input[type=range] { accent-color: var(--accent); width: 100%; }
+  .ctrl .val { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent); }
+  .readout {
+    max-width: 760px; width: 100%;
+    margin-top: 14px;
+    display: flex; flex-wrap: wrap; gap: 12px 24px;
+    background: var(--panel);
+    border: 1px solid var(--track);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 0.9rem;
+  }
+  .readout .item { display: flex; gap: 6px; }
+  .readout .k { color: var(--muted); }
+  .readout .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .btn-row { margin-top: 14px; display: flex; gap: 10px; }
+  button {
+    background: var(--accent); color: #062033; border: none;
+    padding: 10px 18px; border-radius: 8px; font-weight: 600;
+    cursor: pointer; font-size: 0.9rem;
+  }
+  button.secondary { background: var(--track); color: var(--text); }
+  button:hover { filter: brightness(1.08); }
+</style>
+</head>
+<body>
+  <h1>抛体运动模拟</h1>
+  <div class="subtitle">Projectile Motion · 单文件 HTML / canvas · EigenVerse</div>
+
+  <canvas id="cv" width="760" height="420"></canvas>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label>初速度 v₀</label>
+      <input id="sl-v" type="range" min="5" max="50" step="0.5" value="30">
+      <span class="val" id="val-v">30 m/s</span>
+    </div>
+    <div class="ctrl">
+      <label>发射角 θ</label>
+      <input id="sl-a" type="range" min="5" max="85" step="1" value="45">
+      <span class="val" id="val-a">45°</span>
+    </div>
+    <div class="ctrl">
+      <label>重力 g</label>
+      <input id="sl-g" type="range" min="1" max="25" step="0.1" value="9.8">
+      <span class="val" id="val-g">9.8 m/s²</span>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-run">发射</button>
+    <button id="btn-optimal" class="secondary">显示 45° 最优轨迹</button>
+    <button id="btn-clear" class="secondary">清空轨迹</button>
+  </div>
+
+  <div class="readout">
+    <div class="item"><span class="k">射程 R =</span><span class="v" id="out-range">–</span></div>
+    <div class="item"><span class="k">最大高度 H =</span><span class="v" id="out-height">–</span></div>
+    <div class="item"><span class="k">飞行时间 T =</span><span class="v" id="out-time">–</span></div>
+  </div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('cv');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  // --- inputs ---
+  const slV = document.getElementById('sl-v');
+  const slA = document.getElementById('sl-a');
+  const slG = document.getElementById('sl-g');
+
+  function v0()  { return parseFloat(slV.value); }
+  function theta(){ return parseFloat(slA.value) * Math.PI / 180; }
+  function g()   { return parseFloat(slG.value); }
+
+  function fmt(v, u, d) { return v.toFixed(d == null ? 2 : d) + ' ' + u; }
+
+  function updateLabels() {
+    document.getElementById('val-v').textContent = fmt(v0(), 'm/s');
+    document.getElementById('val-a').textContent = parseFloat(slA.value).toFixed(0) + '°';
+    document.getElementById('val-g').textContent = fmt(g(), 'm/s²');
+  }
+  [slV, slA, slG].forEach(s => s.addEventListener('input', () => { updateLabels(); clearTrace(); }));
+
+  // --- derived ---
+  function phys(t, v0_, th_, g_) {
+    // returns {x, y} in meters at time t (ground at y=0)
+    const vx = v0_ * Math.cos(th_);
+    const vy = v0_ * Math.sin(th_);
+    return { x: vx * t, y: vy * t - 0.5 * g_ * t * t, vx, vy };
+  }
+
+  function flightTime(v0_, th_, g_) { return 2 * v0_ * Math.sin(th_) / g_; }
+  function rangeT(v0_, th_, g_) { return v0_ * v0_ * Math.sin(2 * th_) / g_; }
+  function maxHeight(v0_, th_, g_) { return (v0_ * Math.sin(th_)) ** 2 / (2 * g_); }
+
+  // --- world -> screen mapping (auto-scale to fit full range) ---
+  let worldR = 0, worldH = 0;
+  function computeBounds() {
+    const th = theta(), v = v0(), gr = g();
+    worldR = rangeT(v, th, gr);
+    worldH = maxHeight(v, th, gr);
+    // also consider 45 deg trajectory when toggling; use a bit of headroom
+    worldR = Math.max(worldR, rangeT(v, Math.PI/4, gr));
+    worldH = Math.max(worldH, maxHeight(v, Math.PI/4, gr));
+  }
+  function toScreen(xm, ym) {
+    computeBounds();
+    const pad = 40;
+    const sx = pad + (xm / worldR) * (W - 2 * pad);
+    const sy = H - pad - (ym / worldH) * (H - 2 * pad);
+    return [sx, sy];
+  }
+
+  // --- trace management ---
+  let trace = [];        // array of {x,y} screen points
+  let optimalTrace = [];
+  let animId = null;
+
+  function clearTrace() {
+    trace = [];
+    optimalTrace = [];
+    stopAnim();
+    draw();
+  }
+
+  function stopAnim() { if (animId) { cancelAnimationFrame(animId); animId = null; } }
+
+  function launch(showOptimal) {
+    clearTrace();
+    const v = v0(), th = theta(), gr = g();
+    const T = flightTime(v, th, gr);
+    const steps = 90;
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * T;
+      const p = phys(t, v, th, gr);
+      const [sx, sy] = toScreen(p.x, p.y);
+      trace.push({ x: sx, y: sy, px: p.x, py: p.y });
+    }
+    if (showOptimal) {
+      const T45 = flightTime(v, Math.PI/4, gr);
+      for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * T45;
+        const p = phys(t, v, Math.PI/4, gr);
+        const [sx, sy] = toScreen(p.x, p.y);
+        optimalTrace.push({ x: sx, y: sy });
+      }
+    }
+    // readout
+    document.getElementById('out-range').textContent  = fmt(rangeT(v, th, gr), 'm');
+    document.getElementById('out-height').textContent = fmt(maxHeight(v, th, gr), 'm', 1);
+    document.getElementById('out-time').textContent   = fmt(T, 's', 2);
+    draw();
+    animate();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    // grid
+    ctx.strokeStyle = '#1c2744'; ctx.lineWidth = 1;
+    for (let gx = 0; gx <= W; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+    for (let gy = 0; gy <= H; gy += 40) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+    // ground
+    ctx.strokeStyle = '#3a4a6b'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, H - 40); ctx.lineTo(W, H - 40); ctx.stroke();
+    ctx.fillStyle = '#8fa0c0'; ctx.font = '12px sans-serif';
+    ctx.fillText('地面', 6, H - 12);
+
+    // optimal trace (dashed)
+    if (optimalTrace.length) {
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = '#ffd16666'; ctx.lineWidth = 2;
+      ctx.beginPath(); optimalTrace.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // main trace
+    if (trace.length) {
+      ctx.strokeStyle = '#5ac8fa'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); trace.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+      // launch point
+      const o = trace[0];
+      ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(o.x, o.y, 4, 0, 2 * Math.PI); ctx.fill();
+      // impact point
+      const e = trace[trace.length - 1];
+      ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.arc(e.x, e.y, 4, 0, 2 * Math.PI); ctx.fill();
+    }
+  }
+
+  function animate() {
+    if (!trace.length) return;
+    const N = trace.length;
+    let i = 0;
+    function step() {
+      i = (i + 1) % N;
+      draw();
+      // draw moving ball at position i
+      const p = trace[i];
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI); ctx.fill();
+      animId = requestAnimationFrame(step);
+    }
+    step();
+  }
+
+  document.getElementById('btn-run').addEventListener('click', () => launch(false));
+  document.getElementById('btn-optimal').addEventListener('click', () => launch(true));
+  document.getElementById('btn-clear').addEventListener('click', clearTrace);
+
+  updateLabels();
+  draw();
+})();
+</script>
+</body>
+</html>
