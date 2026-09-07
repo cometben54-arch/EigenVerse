@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单摆振子模拟 · Simple Pendulum · EigenVerse</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --text: #e8eefb;
+    --muted: #8fa0c0;
+    --accent: #5ac8fa;
+    --accent2: #ffd166;
+    --ke: #ff6b6b;
+    --pe: #4ecdc4;
+    --track: #1c2744;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 24px 16px;
+  }
+  h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  canvas {
+    background: #0e1628; border: 1px solid var(--track); border-radius: 12px;
+    width: 100%; max-width: 760px; height: auto; display: block;
+  }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px; max-width: 760px; width: 100%;
+    margin-top: 18px; background: var(--panel); border: 1px solid var(--track);
+    border-radius: 12px; padding: 16px;
+  }
+  .ctrl { display: flex; flex-direction: column; gap: 6px; min-width: 150px; flex: 1; }
+  .ctrl label { font-size: 0.75rem; color: var(--muted); }
+  .ctrl input[type=range] { accent-color: var(--accent); width: 100%; }
+  .ctrl .val { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent); }
+  .readout {
+    max-width: 760px; width: 100%; margin-top: 14px;
+    display: flex; flex-wrap: wrap; gap: 12px 24px;
+    background: var(--panel); border: 1px solid var(--track); border-radius: 12px;
+    padding: 14px 16px; font-size: 0.9rem;
+  }
+  .readout .item { display: flex; gap: 6px; }
+  .readout .k { color: var(--muted); }
+  .readout .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .energy {
+    max-width: 760px; width: 100%; margin-top: 14px;
+    background: var(--panel); border: 1px solid var(--track); border-radius: 12px; padding: 14px 16px;
+  }
+  .energy .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 0.8rem; }
+  .energy .bar-row .label { width: 64px; color: var(--muted); }
+  .energy .bar { height: 14px; border-radius: 7px; flex: 1; background: var(--track); overflow: hidden; }
+  .energy .bar .fill { height: 100%; transition: width 0.05s linear; }
+  .btn-row { margin-top: 14px; display: flex; gap: 10px; }
+  button {
+    background: var(--accent); color: #062033; border: none;
+    padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.9rem;
+  }
+  button.secondary { background: var(--track); color: var(--text); }
+  button:hover { filter: brightness(1.08); }
+  .legend { max-width:760px; width:100%; margin-top:10px; font-size:0.75rem; color:var(--muted); }
+</style>
+</head>
+<body>
+  <h1>单摆振子模拟</h1>
+  <div class="subtitle">Simple Pendulum · 能量守恒 + 小角周期 · EigenVerse</div>
+
+  <canvas id="cv" width="760" height="420"></canvas>
+
+  <div class="controls">
+    <div class="ctrl">
+      <label>摆长 L</label>
+      <input id="sl-l" type="range" min="50" max="300" step="5" value="150">
+      <span class="val" id="val-l">1.50 m</span>
+    </div>
+    <div class="ctrl">
+      <label>初始角度 θ₀</label>
+      <input id="sl-t" type="range" min="5" max="60" step="1" value="30">
+      <span class="val" id="val-t">30°</span>
+    </div>
+    <div class="ctrl">
+      <label>重力 g</label>
+      <input id="sl-g" type="range" min="1" max="25" step="0.1" value="9.8">
+      <span class="val" id="val-g">9.8 m/s²</span>
+    </div>
+    <div class="ctrl">
+      <label>阻尼 (阻尼比)</label>
+      <input id="sl-d" type="range" min="0" max="0.3" step="0.01" value="0">
+      <span class="val" id="val-d">0 (无阻尼)</span>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-toggle">暂停 / 继续</button>
+    <button id="btn-reset" class="secondary">重置</button>
+  </div>
+
+  <div class="readout">
+    <div class="item"><span class="k">周期 T =</span><span class="v" id="out-T">–</span></div>
+    <div class="item"><span class="k">当前角度 θ =</span><span class="v" id="out-theta">–</span></div>
+    <div class="item"><span class="k">总机械能 E =</span><span class="v" id="out-E">–</span></div>
+  </div>
+
+  <div class="energy">
+    <div class="bar-row"><span class="label">动能 KE</span><div class="bar"><div class="fill" id="fill-ke" style="background:#ff6b6b;"></div></div></div>
+    <div class="bar-row"><span class="label">势能 PE</span><div class="bar"><div class="fill" id="fill-pe" style="background:#4ecdc4;"></div></div></div>
+  </div>
+  <div class="legend">小角近似周期 T = 2π√(L/g)；初始角越大、真实周期越大（非线性）。能量条按占总能量 E 的比例（无阻尼时 KE+PE 恒定）。</div>
+
+<script>
+(function () {
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const g0 = 9.8;
+
+  const slL = document.getElementById('sl-l');
+  const slT = document.getElementById('sl-t');
+  const slG = document.getElementById('sl-g');
+  const slD = document.getElementById('sl-d');
+
+  function L()  { return parseFloat(slL.value) / 100; } // meters
+  function th0(){ return parseFloat(slT.value) * Math.PI / 180; }
+  function g()  { return parseFloat(slG.value); }
+  function damp(){ return parseFloat(slD.value); }
+
+  // state
+  let theta = th0();     // current angle (rad)
+  let omega = 0;         // angular velocity
+  let running = true;
+  let lastT = null;
+
+  // physics constants (pendulum: theta'' = -(g/L) sin(theta) - damp * theta')
+  // energy: PE = m g L (1 - cos theta), KE = 1/2 m L^2 omega^2  (set m=1, so E = 1/2 L^2 omega^2 + g L (1-cos theta))
+  function PE() { return g() * L() * (1 - Math.cos(theta)); }
+  function KE() { return 0.5 * L() * L() * omega * omega; }
+  function E()  { return PE() + KE(); }
+
+  function fmt(v, u, d) { return v.toFixed(d == null ? 2 : d) + ' ' + u; }
+
+  function smallAnglePeriod() { return 2 * Math.PI * Math.sqrt(L() / g()); }
+
+  function updateLabels() {
+    document.getElementById('val-l').textContent = fmt(L(), 'm', 2);
+    document.getElementById('val-t').textContent = parseFloat(slT.value).toFixed(0) + '°';
+    document.getElementById('val-g').textContent = fmt(g(), 'm/s²');
+    const d = damp();
+    document.getElementById('val-d').textContent = d === 0 ? '0 (无阻尼)' : d.toFixed(2);
+  }
+
+  function reset() { theta = th0(); omega = 0; running = true; lastT = null; draw(); }
+
+  [slL, slT, slG, slD].forEach(s => s.addEventListener('input', () => { updateLabels(); reset(); }));
+
+  document.getElementById('btn-toggle').addEventListener('click', () => { running = !running; });
+  document.getElementById('btn-reset').addEventListener('click', reset);
+
+  // --- screen mapping (pendulum pivot at top-center) ---
+  const pivotX = W / 2, pivotY = 70;
+  function rodLenPx() { return L() / 3 * 100; } // scale: 3m -> 300px
+  function bobScreen() {
+    return [pivotX + rodLenPx() * Math.sin(theta), pivotY + rodLenPx() * Math.cos(theta)];
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    // ceiling
+    ctx.strokeStyle = '#3a4a6b'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, pivotY); ctx.lineTo(W, pivotY); ctx.stroke();
+    ctx.fillStyle = '#8fa0c0'; ctx.font = '12px sans-serif'; ctx.fillText('支点', pivotX + 20, pivotY - 8);
+
+    const [bx, by] = bobScreen();
+    // rod
+    ctx.strokeStyle = '#5ac8fa'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(pivotX, pivotY); ctx.lineTo(bx, by); ctx.stroke();
+    // pivot
+    ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(pivotX, pivotY, 4, 0, 2 * Math.PI); ctx.fill();
+    // bob
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(bx, by, 12, 0, 2 * Math.PI); ctx.fill();
+    // equilibrium dashed line
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = '#2a3a5c'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pivotX, pivotY); ctx.lineTo(pivotX, pivotY + rodLenPx()); ctx.stroke();
+    ctx.setLineDash([]);
+    // angle arc
+    if (Math.abs(theta) > 0.02) {
+      ctx.strokeStyle = '#ffd16688'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(pivotX, pivotY, 28, Math.PI/2, Math.PI/2 + theta, theta < 0);
+      ctx.stroke();
+      ctx.fillStyle = '#ffd166'; ctx.font = '11px sans-serif';
+      ctx.fillText('θ', pivotX + 18, pivotY + 34);
+    }
+  }
+
+  function physicsStep(dt, dtMs) {
+    // semi-implicit Euler for pendulum
+    const alpha = -(g() / L()) * Math.sin(theta) - damp() * omega;
+    omega += alpha * dt;
+    theta += omega * dt;
+  }
+
+  function loop(now) {
+    if (lastT == null) lastT = now;
+    const dtMs = Math.min(now - lastT, 34); // clamp
+    lastT = now;
+    if (running) {
+      const dt = dtMs / 1000;
+      // sub-steps for stability
+      const substeps = 4;
+      for (let i = 0; i < substeps; i++) physicsStep(dt / substeps, dtMs);
+    }
+    // readouts
+    const T0 = smallAnglePeriod();
+    document.getElementById('out-T').textContent = fmt(T0, 's', 2);
+    document.getElementById('out-theta').textContent = (theta * 180 / Math.PI).toFixed(1) + '°';
+    document.getElementById('out-E').textContent = fmt(E(), 'J', 3);
+    // energy bars
+    const e = E();
+    const pke = e > 1e-9 ? KE() / e : 0;
+    const ppe = e > 1e-9 ? PE() / e : 0.5;
+    document.getElementById('fill-ke').style.width = (pke * 100).toFixed(1) + '%';
+    document.getElementById('fill-pe').style.width = (ppe * 100).toFixed(1) + '%';
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  updateLabels();
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
