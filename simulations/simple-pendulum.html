@@ -188,7 +188,7 @@
     if (Math.abs(theta) > 0.02) {
       ctx.strokeStyle = '#ffd16688'; ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(pivotX, pivotY, 28, Math.PI/2, Math.PI/2 + theta, theta < 0);
+      ctx.arc(pivotX, pivotY, 28, Math.PI/2, Math.PI/2 - theta, theta > 0);
       ctx.stroke();
       ctx.fillStyle = '#ffd166'; ctx.font = '11px sans-serif';
       ctx.fillText('θ', pivotX + 18, pivotY + 34);
